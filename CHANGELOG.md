@@ -2,6 +2,11 @@
 
 All notable changes to now-md. Versions follow `__version__` in `nowmd.py`.
 
+## Unreleased (no code change)
+- GitHub Actions: unit tests on Linux / macOS / Windows with Python 3.12 and 3.13, plus a tests badge in the README.
+- Demo GIF now shows `add` → `update` → `check`.
+- Added this changelog.
+
 ## 0.2.1 — security fix
 - `update` / `done` validate `--id` exactly like `add` (no `../`, absolute paths, leading dots, or ids over 120 chars; the resolved path must stay inside `tasks/`).
 - Lock file records `PID time`. A lock older than 30 s is only taken over if its owner process is gone. Release only your own lock. Windows liveness check via `ctypes`. Tunable with `NOWMD_LOCK_STALE` / `NOWMD_LOCK_WAIT`.
