@@ -27,6 +27,8 @@ Broken record? `python3 nowmd.py --dir examples check`
 
 New in v0.2: `update` (any status change), collision-proof ids and a lock so several AIs can write at once, `check` for bad JSON/status/dates, ready-made instruction snippets in [`templates/`](templates) (Claude / Codex / Gemini / ChatGPT), a [getting-started guide](docs/GETTING_STARTED.md), and tests (`python3 -m unittest discover -s tests`).
 
+**v0.2.1 (security fix)**: `update`/`done` now validate `--id` like `add` does (no path tricks like `../`), a lock is only taken over if its owner process is gone (`NOWMD_LOCK_STALE` / `NOWMD_LOCK_WAIT` env vars), and `check` reads under the lock. Please upgrade from v0.2.0.
+
 ### Tips
 - Add one line to your agent instructions (CLAUDE.md / AGENTS.md / GEMINI.md…) — copy from [`templates/`](templates): "Read NOW.md first. Leave one line with `nowmd.py add / update / done / note` at each milestone."
 - Run `python3 nowmd.py build` from cron every few minutes; a task stuck in `running` with no update for 60+ min gets a ⚠.
@@ -52,6 +54,8 @@ cat examples/NOW.md
 記録が壊れていないか: `python3 nowmd.py --dir examples check`
 
 v0.2 の新機能: `update`(状態の変更)、IDが重ならない・ロックで複数のAIが同時に書ける、`check`(JSON・状態・日時の検査)、[`templates/`](templates) の指示書の雛形(Claude / Codex / Gemini / ChatGPT)、[はじめかたガイド](docs/GETTING_STARTED.md)、テスト(`python3 -m unittest discover -s tests`)。
+
+**v0.2.1(セキュリティ修正)**: `update`/`done` でも `--id` を `add` と同じ厳しさで検査(`../` などでtasks外を触れない)、ロックは「持ち主のプロセスが終わっているとき」だけ奪う(環境変数 `NOWMD_LOCK_STALE` / `NOWMD_LOCK_WAIT` で調整可)、`check` もロックを取って読む。v0.2.0 をお使いの方は更新してください。
 
 ### 使い方のコツ
 - AIへの指示書(CLAUDE.md / AGENTS.md / GEMINI.md 等)に「作業の最初に NOW.md を読む。節目に `nowmd.py add / update / done / note` で1行残す」と1行書くだけ([`templates/`](templates) からコピー)。

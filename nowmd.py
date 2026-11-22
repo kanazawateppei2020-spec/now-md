@@ -20,12 +20,15 @@ ids never collide (random suffix + exclusive create), files are replaced atomica
 """
 import argparse, contextlib, datetime, glob, json, os, re, secrets, sys, time
 
-__version__ = "0.2.0"
+__version__ = "0.2.1"
 MAX_LINES = 120
 STATUSES = ("running", "waiting", "blocked", "failed", "done")
 LOCK_NAME = ".nowmd.lock"
-LOCK_WAIT = 10.0   # seconds to wait for the lock
-LOCK_STALE = 30.0  # a lock older than this is treated as left over by a crashed process
+# Seconds to wait for the lock / age after which a lock *may* be left over by a crashed process.
+# Override with env NOWMD_LOCK_WAIT / NOWMD_LOCK_STALE. An old lock is only taken over if its owner process is gone.
+LOCK_WAIT = 10.0
+LOCK_STALE = 30.0
+ID_RE = re.compile(r"[A-Za-z0-9_][A-Za-z0-9_.-]{0,119}")  # no leading dot, no slashes
 
 
 def now():
@@ -50,33 +53,89 @@ def hm(s):
     return d.astimezone().strftime("%m/%d %H:%M") if d else "?"
 
 
+def env_float(name, default):
+    try:
+        return float(os.environ.get(name, default))
+    except ValueError:
+        return default
+
+
+def pid_alive(pid):
+    """True if a process with this pid exists (best effort; unknown -> True so we never steal a live lock)."""
+    if pid <= 0:
+        return False
+    if os.name == "nt":
+        try:
+            import ctypes
+            k = ctypes.windll.kernel32
+            h = k.OpenProcess(0x1000, False, pid)  # PROCESS_QUERY_LIMITED_INFORMATION
+            if not h:
+                return k.GetLastError() == 5  # access denied = exists
+            code = ctypes.c_ulong()
+            ok = k.GetExitCodeProcess(h, ctypes.byref(code))
+            k.CloseHandle(h)
+            return (not ok) or code.value == 259  # STILL_ACTIVE
+        except Exception:
+            return True
+    try:
+        os.kill(pid, 0)
+    except ProcessLookupError:
+        return False
+    except PermissionError:
+        return True
+    except OSError:
+        return True
+    return True
+
+
+def read_lock_owner(path):
+    """Returns (raw text, pid or None) of a lock file."""
+    try:
+        with open(path, encoding="utf-8") as f:
+            raw = f.read()
+    except OSError:
+        return "", None
+    try:
+        return raw, int(raw.split()[0])
+    except (ValueError, IndexError):
+        return raw, None
+
+
 @contextlib.contextmanager
 def lock(base):
-    """Cross-platform lock: create DIR/.nowmd.lock exclusively; wait, clear it if stale."""
+    """Cross-platform lock: create DIR/.nowmd.lock exclusively (content: "<pid> <unix time>").
+    An old lock is taken over only when it is older than the stale limit AND its owner process is gone."""
     os.makedirs(base, exist_ok=True)
     path = os.path.join(base, LOCK_NAME)
+    wait, stale = env_float("NOWMD_LOCK_WAIT", LOCK_WAIT), env_float("NOWMD_LOCK_STALE", LOCK_STALE)
+    mine = f"{os.getpid()} {time.time():.0f}"
     t0 = time.time()
     while True:
         try:
             fd = os.open(path, os.O_CREAT | os.O_EXCL | os.O_WRONLY)
-            os.write(fd, str(os.getpid()).encode())
+            os.write(fd, mine.encode())
             os.close(fd)
             break
         except FileExistsError:
             try:
-                if time.time() - os.path.getmtime(path) > LOCK_STALE:
-                    os.remove(path)
-                    continue
+                if time.time() - os.path.getmtime(path) > stale:
+                    raw, pid = read_lock_owner(path)
+                    if pid is None or not pid_alive(pid):
+                        # re-check the owner didn't change while we looked, then clear the dead lock
+                        if read_lock_owner(path)[0] == raw:
+                            os.remove(path)
+                        continue
             except OSError:
                 continue
-            if time.time() - t0 > LOCK_WAIT:
+            if time.time() - t0 > wait:
                 raise SystemExit(f"could not get the lock ({path}); if no other nowmd is running, delete that file")
             time.sleep(0.05)
     try:
         yield
     finally:
         try:
-            os.remove(path)
+            if read_lock_owner(path)[0] == mine:  # never remove a lock somebody else now owns
+                os.remove(path)
         except OSError:
             pass
 
@@ -136,6 +195,23 @@ def write_json_atomic(p, d):
     with open(tmp, "w", encoding="utf-8") as f:
         json.dump(d, f, ensure_ascii=False, indent=1)
     os.replace(tmp, p)
+
+
+def check_id(tid):
+    """One id check for every command. Exits with a message if the id could escape tasks/ or is odd."""
+    if not isinstance(tid, str) or not ID_RE.fullmatch(tid):
+        sys.exit("--id may only use letters, digits, _ . - (max 120, must not start with '.' or contain '/')")
+    return tid
+
+
+def task_path(base, tid):
+    """Path of tasks/<id>.json after validating the id and confirming it stays inside tasks/."""
+    check_id(tid)
+    root = os.path.realpath(os.path.join(base, "tasks"))
+    p = os.path.realpath(os.path.join(root, tid + ".json"))
+    if os.path.dirname(p) != root:
+        sys.exit("--id resolves outside the tasks folder")
+    return p
 
 
 def new_task_id(base, who, stamp):
@@ -212,7 +288,8 @@ def main(argv=None):
     n = now().isoformat(timespec="seconds")
 
     if a.cmd == "check":
-        bad = check(base)
+        with lock(base):  # read under the lock so a half-written record is not reported as broken
+            bad = check(base)
         for b in bad:
             print(b)
         print(f"{len(bad)} problem(s)" if bad else "ok: no problems")
@@ -227,20 +304,20 @@ def main(argv=None):
                 sys.exit("status: " + "|".join(STATUSES))
             tid = a.id
             if tid:
-                if not re.fullmatch(r"[A-Za-z0-9_.-]+", tid):
-                    sys.exit("--id may only use letters, digits, _ . -")
-                if os.path.exists(os.path.join(base, "tasks", tid + ".json")):
+                if os.path.exists(task_path(base, tid)):
                     sys.exit(f"id already exists: {tid}")
             else:
                 tid = new_task_id(base, a.who, now().strftime("%Y%m%d_%H%M%S"))
             d = {"id": tid, "who": a.who, "title": a.title, "status": status, "started": n, "updated": n}
             if a.why: d["why"] = a.why
             if a.fix: d["fix"] = a.fix
-            write_json_atomic(os.path.join(base, "tasks", tid + ".json"), d)
+            write_json_atomic(task_path(base, tid), d)
             print("added", tid)
         elif a.cmd in ("update", "done"):
-            p = os.path.join(base, "tasks", (a.id or "") + ".json")
-            if not a.id or not os.path.exists(p):
+            if not a.id:
+                sys.exit(f"{a.cmd} needs an existing --id")
+            p = task_path(base, a.id)
+            if not os.path.exists(p):
                 sys.exit(f"{a.cmd} needs an existing --id")
             d, prob = read_task(p)
             if prob:

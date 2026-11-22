@@ -133,14 +133,78 @@ class Concurrency(unittest.TestCase):
             self.assertEqual(run(d, "check")[0], 0)
             self.assertFalse(os.path.exists(os.path.join(d, ".nowmd.lock")))
 
-    def test_stale_lock_is_cleared(self):
+    def _old_lock(self, d, pid):
+        p = os.path.join(d, ".nowmd.lock")
+        with open(p, "w") as f:
+            f.write(f"{pid} 0")
+        old = os.path.getmtime(p) - 120
+        os.utime(p, (old, old))
+        return p
+
+    def test_stale_lock_of_dead_process_is_cleared(self):
+        done = subprocess.run([sys.executable, "-c", "pass"])  # a process that has already exited
+        dead = subprocess.Popen([sys.executable, "-c", "pass"])
+        dead.wait()
         with tempfile.TemporaryDirectory() as d:
-            p = os.path.join(d, ".nowmd.lock")
-            with open(p, "w") as f:
-                f.write("999999")
-            old = os.path.getmtime(p) - 120
-            os.utime(p, (old, old))
+            self._old_lock(d, dead.pid)
             self.assertEqual(run(d, "note", "hi")[0], 0)
+            self.assertEqual(done.returncode, 0)
+
+    def test_old_lock_of_live_process_is_not_stolen(self):
+        with tempfile.TemporaryDirectory() as d:
+            p = self._old_lock(d, os.getpid())  # this test process is alive
+            old = dict(os.environ)
+            os.environ["NOWMD_LOCK_WAIT"], os.environ["NOWMD_LOCK_STALE"] = "0.5", "1"
+            try:
+                self.assertNotEqual(run(d, "note", "hi")[0], 0)
+            finally:
+                os.environ.clear(); os.environ.update(old)
+            self.assertTrue(os.path.exists(p))
+            self.assertFalse(os.path.exists(os.path.join(d, "notes.md")))
+
+    def test_check_waits_for_writer_and_does_not_flag_half_written_file(self):
+        with tempfile.TemporaryDirectory() as d:
+            os.makedirs(os.path.join(d, "tasks"))
+            f = os.path.join(d, "tasks", "w.json")
+            with nowmd.lock(d):
+                with open(f, "w", encoding="utf-8") as fh:
+                    fh.write('{"id": "w", "who": "x",')  # half written
+                p = subprocess.Popen([sys.executable, os.path.join(ROOT, "nowmd.py"), "--dir", d, "check"],
+                                     stdout=subprocess.PIPE, text=True)
+                with self.assertRaises(subprocess.TimeoutExpired):
+                    p.wait(timeout=0.7)  # still waiting for the lock
+                with open(f, "w", encoding="utf-8") as fh:
+                    json.dump({"id": "w", "who": "x", "title": "t", "status": "running"}, fh)
+            out, _ = p.communicate(timeout=15)
+            self.assertEqual(p.returncode, 0, out)
+
+
+class IdSafety(unittest.TestCase):
+    def setUp(self):
+        self.t = tempfile.TemporaryDirectory()
+        self.d = self.t.name
+        run(self.d, "add", "--who", "a", "--title", "t", "--id", "ok1")
+        self.outside = os.path.join(self.d, "outside.json")  # tasks/../outside.json
+        with open(self.outside, "w", encoding="utf-8") as f:
+            json.dump({"id": "outside", "who": "x", "title": "keep me", "status": "running"}, f)
+        self.before = read(self.outside)
+
+    def tearDown(self):
+        self.t.cleanup()
+
+    def test_bad_ids_rejected_on_every_command(self):
+        bad = ["../outside", "..", ".", ".hidden", "a/b", "a\\b", os.path.join(self.d, "outside"), "x" * 200]
+        for tid in bad:
+            for cmd in ("update", "done"):
+                extra = ("--status", "done") if cmd == "update" else ()
+                self.assertNotEqual(run(self.d, cmd, "--id", tid, *extra)[0], 0, (cmd, tid))
+            self.assertNotEqual(run(self.d, "add", "--who", "a", "--title", "t", "--id", tid)[0], 0, ("add", tid))
+        self.assertEqual(read(self.outside), self.before)
+        self.assertEqual([os.path.basename(p) for p in task_files(self.d)], ["ok1.json"])
+
+    def test_good_id_still_works(self):
+        self.assertEqual(run(self.d, "update", "--id", "ok1", "--status", "blocked", "--why", "w")[0], 0)
+        self.assertEqual(run(self.d, "done", "--id", "ok1")[0], 0)
 
 
 if __name__ == "__main__":
