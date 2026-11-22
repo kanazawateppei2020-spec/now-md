@@ -1,0 +1,10 @@
+{
+ "id": "20261122_184412_codex",
+ "who": "codex",
+ "title": "Write tests",
+ "status": "blocked",
+ "started": "2026-11-22T18:44:12+09:00",
+ "updated": "2026-11-22T18:44:12+09:00",
+ "why": "needs API key",
+ "fix": "ask the owner for a test key"
+}
