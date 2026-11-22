@@ -2,6 +2,8 @@
 
 > Machine-written `NOW.md` for people who juggle Claude, ChatGPT, Codex and Gemini. Each AI drops one tiny JSON per task; one script builds a single hand-off page. No AI, no network, standard library only.
 
+[![tests](https://github.com/kanazawateppei2020-spec/now-md/actions/workflows/test.yml/badge.svg)](https://github.com/kanazawateppei2020-spec/now-md/actions/workflows/test.yml) [![license: MIT](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE) [Changelog](CHANGELOG.md)
+
 [English](#english) | [日本語](#日本語)
 
 ![demo](docs/demo.gif)
