@@ -21,10 +21,14 @@ python3 nowmd.py --dir examples add --who codex --title "Write tests" --status b
 python3 nowmd.py --dir examples note "Decision: use SQLite"
 cat examples/NOW.md
 ```
+When things change: `python3 nowmd.py --dir examples update --id <id> --status blocked --why "..." --fix "..."`
 When finished: `python3 nowmd.py --dir examples done --id <id> --result result.md`
+Broken record? `python3 nowmd.py --dir examples check`
+
+New in v0.2: `update` (any status change), collision-proof ids and a lock so several AIs can write at once, `check` for bad JSON/status/dates, ready-made instruction snippets in [`templates/`](templates) (Claude / Codex / Gemini / ChatGPT), a [getting-started guide](docs/GETTING_STARTED.md), and tests (`python3 -m unittest discover -s tests`).
 
 ### Tips
-- Add one line to your agent instructions (CLAUDE.md / AGENTS.md…): "Read NOW.md first. Leave one line with `nowmd.py add / done / note` at each milestone."
+- Add one line to your agent instructions (CLAUDE.md / AGENTS.md / GEMINI.md…) — copy from [`templates/`](templates): "Read NOW.md first. Leave one line with `nowmd.py add / update / done / note` at each milestone."
 - Run `python3 nowmd.py build` from cron every few minutes; a task stuck in `running` with no update for 60+ min gets a ⚠.
 - Old task files can stay; `done` items older than 24h simply drop out of `NOW.md`.
 
@@ -43,10 +47,14 @@ python3 nowmd.py --dir examples add --who codex --title "テストを書く" --s
 python3 nowmd.py --dir examples note "決定: DBはSQLiteにする"
 cat examples/NOW.md
 ```
+状態が変わったら: `python3 nowmd.py --dir examples update --id <id> --status blocked --why "理由" --fix "戻し方"`
 終わったら: `python3 nowmd.py --dir examples done --id <id> --result 結果.md`
+記録が壊れていないか: `python3 nowmd.py --dir examples check`
+
+v0.2 の新機能: `update`(状態の変更)、IDが重ならない・ロックで複数のAIが同時に書ける、`check`(JSON・状態・日時の検査)、[`templates/`](templates) の指示書の雛形(Claude / Codex / Gemini / ChatGPT)、[はじめかたガイド](docs/GETTING_STARTED.md)、テスト(`python3 -m unittest discover -s tests`)。
 
 ### 使い方のコツ
-- AIへの指示書(CLAUDE.md / AGENTS.md 等)に「作業の最初に NOW.md を読む。節目に `nowmd.py add / done / note` で1行残す」と1行書くだけ。
+- AIへの指示書(CLAUDE.md / AGENTS.md / GEMINI.md 等)に「作業の最初に NOW.md を読む。節目に `nowmd.py add / update / done / note` で1行残す」と1行書くだけ([`templates/`](templates) からコピー)。
 - cron や launchd で `python3 nowmd.py build` を数分おきに回すと、`running` のまま長時間更新が無い作業に ⚠ が付きます。
 - `tasks/` の記録は消さずに溜めてOK(24時間より古い `done` は `NOW.md` に出ません)。
 

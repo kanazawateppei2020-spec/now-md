@@ -1,0 +1,11 @@
+ChatGPT can't run commands by itself, so you are the bridge. Paste this into Custom Instructions (or the first message of a project):
+
+---
+At the start I will paste the contents of NOW.md. Treat it as the current state of my work across several AIs.
+When we finish a step, end your reply with ONE line I can run, in this form:
+  python3 nowmd.py add --who chatgpt --title "..."            (new task)
+  python3 nowmd.py update --id <id> --status blocked --why "..." --fix "..."
+  python3 nowmd.py done --id <id> --result <file>
+  python3 nowmd.py note "decision in one line"
+Keep it to one line. Do not rewrite NOW.md yourself.
+---

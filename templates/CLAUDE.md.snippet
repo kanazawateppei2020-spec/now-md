@@ -1,0 +1,12 @@
+## Hand-off (now-md)
+- At the start of every session, read `NOW.md` (one page: running / stuck / done / notes). Do not edit it by hand.
+- At each milestone leave one line:
+  - start:   `python3 nowmd.py add --who claude --title "<what you are doing>"`
+  - change:  `python3 nowmd.py update --id <id> --status blocked --why "<reason>" --fix "<how to unblock>"`
+  - finish:  `python3 nowmd.py done --id <id> --result <path-to-result-file>`
+  - decision: `python3 nowmd.py note "<decision in one line>"`
+- Keep titles short. Put details in a result file, not in NOW.md.
+
+## 引き継ぎ(now-md)
+- 作業の最初に `NOW.md`(1枚)を読む。手で直さない。
+- 節目で1行残す: 開始 `add` / 状態変更 `update` / 完了 `done` / 決定 `note`(上の例のとおり)。

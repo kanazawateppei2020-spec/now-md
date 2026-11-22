@@ -1,0 +1,9 @@
+## Hand-off (now-md) — for Codex and other AGENTS.md readers
+- First thing in a session: read `NOW.md` (machine-written; never edit it by hand).
+- Leave one line at each milestone, using your own name in `--who`:
+  - `python3 nowmd.py add --who codex --title "<task>"`
+  - `python3 nowmd.py update --id <id> --status blocked --why "<reason>" --fix "<how to unblock>"`
+  - `python3 nowmd.py done --id <id> --result <result-file>`
+  - `python3 nowmd.py note "<decision>"`
+- Status values: running | waiting | blocked | failed | done.
+- If `python3 nowmd.py check` reports problems, fix the named task file before going on.
