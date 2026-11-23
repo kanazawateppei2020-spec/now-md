@@ -11,6 +11,7 @@ Each task = one small JSON file in ./tasks/ . Each AI (or you) writes its own li
   python3 nowmd.py note   "Decision: use SQLite, not Postgres"
   python3 nowmd.py build            # (re)writes NOW.md  — run it from cron every few minutes if you like
   python3 nowmd.py check            # lists broken task files / bad status / bad dates (exit 1 if any)
+  python3 nowmd.py list             # one line per task: id, [status], title  (find the id for update/done)
 
 Status: running | waiting | blocked | failed | done
 Folder: --dir DIR (default: current folder; uses DIR/tasks/, DIR/notes.md, DIR/NOW.md)
@@ -18,9 +19,9 @@ Folder: --dir DIR (default: current folder; uses DIR/tasks/, DIR/notes.md, DIR/N
 Safe for several AIs writing at once: every write takes a lock file (DIR/.nowmd.lock),
 ids never collide (random suffix + exclusive create), files are replaced atomically.
 """
-import argparse, contextlib, datetime, glob, json, os, re, secrets, sys, time
+import argparse, contextlib, datetime, glob, json, math, os, re, secrets, sys, time
 
-__version__ = "0.2.1"
+__version__ = "0.2.2"
 MAX_LINES = 120
 STATUSES = ("running", "waiting", "blocked", "failed", "done")
 LOCK_NAME = ".nowmd.lock"
@@ -43,26 +44,33 @@ def parse(s):
     """Parse an ISO time; naive times are treated as local time. Returns None if invalid."""
     try:
         d = datetime.datetime.fromisoformat(s)
-    except Exception:
+        return d if d.tzinfo else d.astimezone()
+    except (ValueError, OverflowError, OSError, TypeError):  # e.g. year 0001 / 9999 cannot be shifted to local time
         return None
-    return d if d.tzinfo else d.astimezone()
 
 
 def hm(s):
     d = parse(s)
-    return d.astimezone().strftime("%m/%d %H:%M") if d else "?"
+    if not d:
+        return "?"
+    try:
+        return d.astimezone().strftime("%m/%d %H:%M")
+    except (ValueError, OverflowError, OSError):
+        return "?"
 
 
 def env_float(name, default):
+    """A finite, non-negative number from the environment, else the default."""
     try:
-        return float(os.environ.get(name, default))
+        v = float(os.environ.get(name, default))
     except ValueError:
         return default
+    return v if math.isfinite(v) and v >= 0 else default
 
 
 def pid_alive(pid):
     """True if a process with this pid exists (best effort; unknown -> True so we never steal a live lock)."""
-    if pid <= 0:
+    if pid <= 0 or pid > 2**31 - 1:  # not a real pid (e.g. a corrupted lock file)
         return False
     if os.name == "nt":
         try:
@@ -79,7 +87,7 @@ def pid_alive(pid):
             return True
     try:
         os.kill(pid, 0)
-    except ProcessLookupError:
+    except (ProcessLookupError, OverflowError, ValueError):
         return False
     except PermissionError:
         return True
@@ -175,6 +183,17 @@ def load_tasks(base):
     return out
 
 
+def list_lines(base):
+    """One line per readable task: '<id>  [status]  title' (the id is what --id wants)."""
+    out = []
+    for f in sorted(glob.glob(os.path.join(base, "tasks", "*.json"))):
+        d, prob = read_task(f)
+        if prob:
+            continue
+        out.append(f"{os.path.basename(f)[:-5]}  [{clip(d.get('status', 'waiting'), 10)}]  {clip(d.get('title', ''), 60)}")
+    return out
+
+
 def check(base):
     """Returns a list of 'file: problem' strings."""
     bad = []
@@ -237,7 +256,7 @@ def build(base, stale_min=60):
     running, stuck, done = [], [], []
     for t in tasks:
         st = t.get("status", "waiting")
-        title, who = clip(t.get("title", ""), 60), t.get("who", "?")
+        title, who = clip(t.get("title", ""), 60), clip(t.get("who", "?"), 30)
         upd = parse(str(t.get("updated", "")))
         if st == "running":
             stale = upd and (n - upd).total_seconds() > stale_min * 60
@@ -248,7 +267,7 @@ def build(base, stale_min=60):
                 line += f" / how to unblock: {clip(t['fix'], 70)}"
             stuck.append(line)
         elif st == "done" and upd and upd > n - datetime.timedelta(hours=24):
-            r = f" → {t['result']}" if t.get("result") else ""
+            r = f" → {clip(t['result'], 100)}" if t.get("result") else ""
             done.append((upd, f"- {hm(t.get('updated'))} {title} ({who}){r}"))
     done = [x[1] for x in sorted(done, key=lambda x: x[0], reverse=True)]
     notes = []
@@ -266,7 +285,8 @@ def build(base, stale_min=60):
     if warn:
         out.append(f"- ⚠ {warn} broken task record(s) skipped — run `python3 nowmd.py check`")
     out += sec("Running", running) + sec("Stuck (and how to unblock)", stuck) + sec("Done in the last 24h", done[:12]) + sec("Latest notes / decisions", notes)
-    lines = out[:MAX_LINES - 1] + (["…(truncated)"] if len(out) > MAX_LINES else [])
+    flat = "\n".join(out).splitlines()  # count real lines, whatever the fields contained
+    lines = flat[:MAX_LINES - 1] + (["…(truncated)"] if len(flat) > MAX_LINES else [])
     path = os.path.join(base, "NOW.md")
     tmp = path + f".{os.getpid()}.tmp"
     with open(tmp, "w", encoding="utf-8") as f:
@@ -277,7 +297,7 @@ def build(base, stale_min=60):
 
 def main(argv=None):
     ap = argparse.ArgumentParser(description="Build NOW.md for AI handoff")
-    ap.add_argument("cmd", choices=["add", "update", "done", "note", "build", "check"])
+    ap.add_argument("cmd", choices=["add", "update", "done", "note", "build", "check", "list"])
     ap.add_argument("text", nargs="?")
     ap.add_argument("--dir", default=".")
     ap.add_argument("--who"); ap.add_argument("--title"); ap.add_argument("--status")
@@ -295,9 +315,16 @@ def main(argv=None):
         print(f"{len(bad)} problem(s)" if bad else "ok: no problems")
         return 1 if bad else 0
 
+    if a.cmd == "list":
+        with lock(base):
+            rows = list_lines(base)
+        print("\n".join(rows) if rows else "no tasks")
+        return 0
+
     with lock(base):
         if a.cmd == "add":
             status = a.status or "running"
+            a.who = clip(a.who, 30) if a.who else a.who  # one short line, so it cannot fake headings in NOW.md
             if not (a.who and a.title):
                 sys.exit("add needs --who and --title")
             if status not in STATUSES:

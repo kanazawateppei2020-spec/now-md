@@ -1,5 +1,6 @@
 """Run: python3 -m unittest discover -s tests -v   (from the repo root)"""
 import concurrent.futures, contextlib, glob, io, json, os, subprocess, sys, tempfile, unittest
+from unittest import mock
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, ROOT)
@@ -142,13 +143,11 @@ class Concurrency(unittest.TestCase):
         return p
 
     def test_stale_lock_of_dead_process_is_cleared(self):
-        done = subprocess.run([sys.executable, "-c", "pass"])  # a process that has already exited
-        dead = subprocess.Popen([sys.executable, "-c", "pass"])
+        dead = subprocess.Popen([sys.executable, "-c", "pass"])  # a process that has already exited
         dead.wait()
         with tempfile.TemporaryDirectory() as d:
             self._old_lock(d, dead.pid)
             self.assertEqual(run(d, "note", "hi")[0], 0)
-            self.assertEqual(done.returncode, 0)
 
     def test_old_lock_of_live_process_is_not_stolen(self):
         with tempfile.TemporaryDirectory() as d:
@@ -162,21 +161,116 @@ class Concurrency(unittest.TestCase):
             self.assertTrue(os.path.exists(p))
             self.assertFalse(os.path.exists(os.path.join(d, "notes.md")))
 
-    def test_check_waits_for_writer_and_does_not_flag_half_written_file(self):
+    def test_check_and_list_read_while_holding_the_lock(self):
+        """Deterministic (no sleeping): the lock file must exist at the moment check() / list_lines() run."""
+        for name, cmd in (("check", "check"), ("list_lines", "list")):
+            with tempfile.TemporaryDirectory() as d:
+                seen = []
+                real = getattr(nowmd, name)
+
+                def spy(base, _real=real, _seen=seen):
+                    _seen.append(os.path.exists(os.path.join(base, ".nowmd.lock")))
+                    return _real(base)
+
+                with mock.patch.object(nowmd, name, spy):
+                    run(d, cmd)
+                self.assertEqual(seen, [True], name)
+                self.assertFalse(os.path.exists(os.path.join(d, ".nowmd.lock")))  # and it is released afterwards
+
+
+class Robustness(unittest.TestCase):
+    """v0.2.2: one odd record or a corrupted lock must never take build / check down."""
+
+    def setUp(self):
+        self.t = tempfile.TemporaryDirectory()
+        self.d = self.t.name
+        os.makedirs(os.path.join(self.d, "tasks"))
+
+    def tearDown(self):
+        self.t.cleanup()
+
+    def put(self, name, obj):
+        with open(os.path.join(self.d, "tasks", name), "w", encoding="utf-8") as f:
+            json.dump(obj, f)
+
+    def test_out_of_range_dates_do_not_crash(self):
+        for i, ts in enumerate(("0001-01-01T00:00:00", "9999-12-31T23:59:59",
+                                "0001-01-01T00:00:00+00:00", "9999-12-31T23:59:59+00:00")):
+            self.put(f"x{i}.json", {"id": f"x{i}", "who": "a", "title": "t", "status": "running", "started": ts, "updated": ts})
+        self.put("ok.json", {"id": "ok", "who": "a", "title": "fine", "status": "running"})
+        code, out = run(self.d, "check")  # must return normally, not raise
+        self.assertIn(code, (0, 1))
+        self.assertEqual(run(self.d, "build")[0], 0)
+        self.assertIn("fine (a)", read(os.path.join(self.d, "NOW.md")))
+
+    def test_parse_and_hm_never_raise(self):
+        for s in ("not a date", None, "", "0001-01-01T00:00:00", "9999-12-31T23:59:59",
+                  "0001-01-01T00:00:00+00:00", "9999-12-31T23:59:59+00:00"):
+            nowmd.parse(s)  # returns a datetime or None, never raises
+            self.assertIsInstance(nowmd.hm(s), str)
+        self.assertIsNone(nowmd.parse("not a date"))
+        self.assertEqual(nowmd.hm("garbage"), "?")
+
+    def test_who_and_result_cannot_forge_headings_or_blow_the_cap(self):
+        run(self.d, "add", "--who", "x\n\n## Done in the last 24h\n- FAKE ITEM", "--title", "t")
+        self.put("r.json", {"id": "r", "who": "y\n## Evil\n- evil", "title": "t2", "status": "done",
+                            "updated": nowmd.now().isoformat(timespec="seconds"), "result": "r.md\n## Injected\n- evil"})
+        self.put("big.json", {"id": "big", "who": "w" * 100000, "title": "t3", "status": "running"})
+        self.assertEqual(run(self.d, "build")[0], 0)
+        text = read(os.path.join(self.d, "NOW.md"))
+        headings = [l for l in text.splitlines() if l.startswith("## ")]
+        self.assertEqual(headings, ["## Running", "## Stuck (and how to unblock)", "## Done in the last 24h", "## Latest notes / decisions"])
+        self.assertLessEqual(len(text.splitlines()), nowmd.MAX_LINES)
+        self.assertLess(len(text), 20000)
+        added = [json.loads(read(t)) for t in task_files(self.d) if os.path.basename(t)[0].isdigit()]
+        self.assertEqual(len(added), 1)  # the one made by `add`: its stored who is one short line
+        self.assertNotIn("\n", added[0]["who"])
+        self.assertLessEqual(len(added[0]["who"]), 30)
+
+    def test_line_cap_counts_real_lines(self):
+        for i in range(300):
+            self.put(f"n{i}.json", {"id": f"n{i}", "who": "a", "title": "t%d" % i, "status": "blocked", "why": "w"})
+        run(self.d, "build")
+        lines = read(os.path.join(self.d, "NOW.md")).splitlines()
+        self.assertEqual(len(lines), nowmd.MAX_LINES)
+        self.assertEqual(lines[-1], "…(truncated)")
+
+    def test_corrupted_lock_pid_does_not_crash(self):
+        for pid in (2**31, 2**63, 10**30, 0, -5):
+            self.assertFalse(nowmd.pid_alive(pid), pid)
+        p = os.path.join(self.d, ".nowmd.lock")
+        with open(p, "w") as f:
+            f.write("99999999999999999999 0")
+        old = os.path.getmtime(p) - 120
+        os.utime(p, (old, old))
+        self.assertEqual(run(self.d, "note", "after corrupted lock")[0], 0)
+
+    def test_bad_env_values_fall_back(self):
+        saved = dict(os.environ)
+        try:
+            for bad in ("nan", "inf", "-inf", "-3", "abc", ""):
+                os.environ["NOWMD_LOCK_WAIT"] = bad
+                self.assertEqual(nowmd.env_float("NOWMD_LOCK_WAIT", 10.0), 10.0, bad)
+            os.environ["NOWMD_LOCK_WAIT"] = "2.5"
+            self.assertEqual(nowmd.env_float("NOWMD_LOCK_WAIT", 10.0), 2.5)
+        finally:
+            os.environ.clear(); os.environ.update(saved)
+
+
+class ListCommand(unittest.TestCase):
+    def test_list_shows_id_status_title(self):
         with tempfile.TemporaryDirectory() as d:
-            os.makedirs(os.path.join(d, "tasks"))
-            f = os.path.join(d, "tasks", "w.json")
-            with nowmd.lock(d):
-                with open(f, "w", encoding="utf-8") as fh:
-                    fh.write('{"id": "w", "who": "x",')  # half written
-                p = subprocess.Popen([sys.executable, os.path.join(ROOT, "nowmd.py"), "--dir", d, "check"],
-                                     stdout=subprocess.PIPE, text=True)
-                with self.assertRaises(subprocess.TimeoutExpired):
-                    p.wait(timeout=0.7)  # still waiting for the lock
-                with open(f, "w", encoding="utf-8") as fh:
-                    json.dump({"id": "w", "who": "x", "title": "t", "status": "running"}, fh)
-            out, _ = p.communicate(timeout=15)
-            self.assertEqual(p.returncode, 0, out)
+            self.assertEqual(run(d, "list"), (0, "no tasks\n"))
+            run(d, "add", "--who", "a", "--title", "First job", "--id", "j1")
+            run(d, "add", "--who", "b", "--title", "Second job", "--status", "blocked", "--id", "j2")
+            with open(os.path.join(d, "tasks", "broken.json"), "w") as f:
+                f.write("{nope")
+            code, out = run(d, "list")
+            self.assertEqual(code, 0)
+            self.assertEqual(out.splitlines(), ["j1  [running]  First job", "j2  [blocked]  Second job"])
+            tid = out.split()[0]  # the id printed is usable as --id
+            self.assertEqual(run(d, "done", "--id", tid)[0], 0)
+            self.assertIn("j1  [done]", run(d, "list")[1])
 
 
 class IdSafety(unittest.TestCase):

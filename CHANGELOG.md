@@ -2,10 +2,15 @@
 
 All notable changes to now-md. Versions follow `__version__` in `nowmd.py`.
 
-## Unreleased (no code change)
-- GitHub Actions: unit tests on Linux / macOS / Windows with Python 3.12 and 3.13, plus a tests badge in the README.
-- Demo GIF now shows `add` → `update` → `check`.
-- Added this changelog.
+## 0.2.2 — stability and input fixes
+- A task with an out-of-range date (year 0001 / 9999, or before 1970 on Windows) no longer crashes `check` / `build`; it is reported as a bad time. `parse()` / `hm()` never raise.
+- `--who` is shortened to one line (30 chars) when added and when built; `result` is shortened to 100 chars when built. A task can no longer forge headings in `NOW.md`. The 120-line cap now counts real lines.
+- A corrupted lock file (huge or garbage PID) no longer raises `OverflowError`; `NOWMD_LOCK_WAIT` / `NOWMD_LOCK_STALE` ignore `nan`, `inf`, negative and non-numeric values.
+- New `list` command: one line per task (`id  [status]  title`), so the id for `update` / `done` is easy to find.
+- Minimum Python is now stated as 3.11 (CI runs 3.11 / 3.12 / 3.13).
+- README: "How it differs", "Trust and limits"; the links to the author's Japanese writing are now under "Related writing".
+- Tests: 23 (the lock test is now deterministic instead of timing-based).
+- GitHub Actions (Linux / macOS / Windows), tests badge, demo GIF (`add` → `update` → `check`) and this changelog were added after 0.2.1 without code changes.
 
 ## 0.2.1 — security fix
 - `update` / `done` validate `--id` exactly like `add` (no `../`, absolute paths, leading dots, or ids over 120 chars; the resolved path must stay inside `tasks/`).

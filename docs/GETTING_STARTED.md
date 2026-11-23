@@ -4,7 +4,7 @@
 
 ## English
 
-You need: Python 3.8+ (check with `python3 --version`). Nothing to install.
+You need: Python 3.11+ (check with `python3 --version`). Nothing to install.
 
 1. **Put `nowmd.py` in your project folder** (or anywhere; use `--dir` to point at the project).
 2. **Make your first task and page**
@@ -33,7 +33,7 @@ You need: Python 3.8+ (check with `python3 --version`). Nothing to install.
 
 ## 日本語
 
-必要なもの: Python 3.8以上(`python3 --version` で確認)。インストールは不要です。
+必要なもの: Python 3.11以上(`python3 --version` で確認)。インストールは不要です。
 
 1. **`nowmd.py` をプロジェクトのフォルダに置く**(別の場所でも `--dir` で指定できます)。
 2. **最初の1件とページを作る**

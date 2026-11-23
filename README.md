@@ -16,6 +16,11 @@ How it works: each AI (or you) writes one tiny JSON per task into `tasks/`. A sc
 
 `NOW.md` contains: **Running / Stuck (with how to unblock) / Done in the last 24h / Latest notes & decisions** — capped at 120 lines.
 
+**How it differs**
+- The page is written by a script, so the format never drifts, whichever AI wrote the records.
+- No AI and no network are involved in building it, so the reader pays only for reading one short page.
+- Several AIs can write at the same time (lock file, unique ids, atomic replace) — on one machine, in a normal local folder. It is not a memory store or an agent framework: it keeps no conversations and calls no model.
+
 ### Try it in 30 seconds
 ```
 python3 nowmd.py --dir examples add --who claude --title "Fix login bug" --status running
@@ -26,10 +31,16 @@ cat examples/NOW.md
 When things change: `python3 nowmd.py --dir examples update --id <id> --status blocked --why "..." --fix "..."`
 When finished: `python3 nowmd.py --dir examples done --id <id> --result result.md`
 Broken record? `python3 nowmd.py --dir examples check`
+Forgot an id? `python3 nowmd.py --dir examples list` (one line per task: id, `[status]`, title)
 
 New in v0.2: `update` (any status change), collision-proof ids and a lock so several AIs can write at once, `check` for bad JSON/status/dates, ready-made instruction snippets in [`templates/`](templates) (Claude / Codex / Gemini / ChatGPT), a [getting-started guide](docs/GETTING_STARTED.md), and tests (`python3 -m unittest discover -s tests`).
 
 **v0.2.1 (security fix)**: `update`/`done` now validate `--id` like `add` does (no path tricks like `../`), a lock is only taken over if its owner process is gone (`NOWMD_LOCK_STALE` / `NOWMD_LOCK_WAIT` env vars), and `check` reads under the lock. Please upgrade from v0.2.0.
+
+**v0.2.2 (stability)**: a record with an out-of-range date (year 0001 / 9999) no longer crashes `check` / `build`; `--who` and `result` are shortened to one line, so a task can no longer forge headings in `NOW.md` or break the 120-line cap; a corrupted lock file or a bad `NOWMD_LOCK_*` value no longer crashes; new `list` command. Python 3.11+ is now the stated minimum.
+
+### Trust and limits
+`NOW.md` assumes the writers are trusted: whatever a task says ends up in the page the next AI reads. Do not put `tasks/` where untrusted people or tools can write. Use a normal local folder on one machine (not a synced or network folder).
 
 ### Tips
 - Add one line to your agent instructions (CLAUDE.md / AGENTS.md / GEMINI.md…) — copy from [`templates/`](templates): "Read NOW.md first. Leave one line with `nowmd.py add / update / done / note` at each milestone."
@@ -44,6 +55,11 @@ New in v0.2: `update` (any status change), collision-proof ids and a lock so sev
 
 `NOW.md` の中身: **動いている作業 / 止まっている作業(戻し方つき)/ 直近24時間に終わった作業 / 最新のメモ・決定**。最大120行。
 
+**他と何が違うか**
+- ページはスクリプトが書くので、どのAIが記録を書いても書式がぶれません。
+- 作るときにAIもネットも使わないので、読む側は短い1枚を読むぶんのトークンだけです。
+- 複数のAIが同時に書けます(ロックファイル・重ならないID・原子的な置き換え)。ただし同じマシンの普通のフォルダで使う前提です。会話を保存する「メモリ」や、AIを呼ぶエージェントの枠組みではありません。
+
 ### 30秒で試す
 ```
 python3 nowmd.py --dir examples add --who claude --title "ログイン不具合を直す" --status running
@@ -54,20 +70,26 @@ cat examples/NOW.md
 状態が変わったら: `python3 nowmd.py --dir examples update --id <id> --status blocked --why "理由" --fix "戻し方"`
 終わったら: `python3 nowmd.py --dir examples done --id <id> --result 結果.md`
 記録が壊れていないか: `python3 nowmd.py --dir examples check`
+IDを忘れたら: `python3 nowmd.py --dir examples list`(1件1行: ID・`[状態]`・題)
 
 v0.2 の新機能: `update`(状態の変更)、IDが重ならない・ロックで複数のAIが同時に書ける、`check`(JSON・状態・日時の検査)、[`templates/`](templates) の指示書の雛形(Claude / Codex / Gemini / ChatGPT)、[はじめかたガイド](docs/GETTING_STARTED.md)、テスト(`python3 -m unittest discover -s tests`)。
 
 **v0.2.1(セキュリティ修正)**: `update`/`done` でも `--id` を `add` と同じ厳しさで検査(`../` などでtasks外を触れない)、ロックは「持ち主のプロセスが終わっているとき」だけ奪う(環境変数 `NOWMD_LOCK_STALE` / `NOWMD_LOCK_WAIT` で調整可)、`check` もロックを取って読む。v0.2.0 をお使いの方は更新してください。
+
+**v0.2.2(安定性の修正)**: 範囲外の日付(0001年・9999年)の記録1件で `check` / `build` が落ちる問題を修正。`--who` と `result` は1行に短縮され、`NOW.md` に偽の見出しを入れたり120行の上限を破ったりできなくなりました。壊れたロックファイルや不正な `NOWMD_LOCK_*` の値でも落ちません。新コマンド `list`。最低バージョンは Python 3.11 と明記しました。
+
+### 信頼と限界
+`NOW.md` は「書き手を信頼する」前提です。タスクに書かれた文字は、次のAIが読むページにそのまま入ります。信頼できない人やツールが書き込める場所に `tasks/` を置かないでください。同期フォルダやネットワーク共有ではなく、1台のマシンの普通のフォルダで使ってください。
 
 ### 使い方のコツ
 - AIへの指示書(CLAUDE.md / AGENTS.md / GEMINI.md 等)に「作業の最初に NOW.md を読む。節目に `nowmd.py add / update / done / note` で1行残す」と1行書くだけ([`templates/`](templates) からコピー)。
 - cron や launchd で `python3 nowmd.py build` を数分おきに回すと、`running` のまま長時間更新が無い作業に ⚠ が付きます。
 - `tasks/` の記録は消さずに溜めてOK(24時間より古い `done` は `NOW.md` に出ません)。
 
-## More / 続き
-- Repo: https://github.com/kanazawateppei2020-spec/now-md
-- Series (Japanese) / 連載マガジン: https://note.com/teppei_lil_white/m/m5d06e069f1fd
-- Guide (Japanese, ¥980) / 共通ファイル設計ガイド: https://note.com/teppei_lil_white/n/n3800182145e4
+## Related writing (Japanese) / 関連記事
+The tool above is free and complete on its own. These are optional Japanese write-ups by the author:
+- Series / 連載マガジン: https://note.com/teppei_lil_white/m/m5d06e069f1fd
+- Guide on designing shared files for several AIs (paid) / 共通ファイル設計ガイド(有料): https://note.com/teppei_lil_white/n/n3800182145e4
 - Author on note: https://note.com/teppei_lil_white
 
 ## License
