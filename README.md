@@ -101,7 +101,6 @@ v0.2 の新機能: `update`(状態の変更)、IDが重ならない・ロック�
 ## Related writing (Japanese) / 関連記事
 The tool above is free and complete on its own. These are optional Japanese write-ups by the author:
 - Series / 連載マガジン: https://note.com/teppei_lil_white/m/m5d06e069f1fd
-- Guide on designing shared files for several AIs (paid) / 共通ファイル設計ガイド(有料): https://note.com/teppei_lil_white/n/n3800182145e4
 - Author on note: https://note.com/teppei_lil_white
 
 ## License
