@@ -54,6 +54,8 @@ New in v0.2: `update` (any status change), collision-proof ids and a lock so sev
 
 **v0.2.4 (install + endurance)**: installs as a `nowmd` command with pipx; a new test runs 10 separate processes writing at once and checks nothing is lost; CI now installs the package on Linux / macOS / Windows.
 
+**v0.2.5**: fixes a rare Windows-only race when several processes take the lock back to back (found by the new endurance test in CI).
+
 ### Trust and limits
 `NOW.md` assumes the writers are trusted: whatever a task says ends up in the page the next AI reads. Do not put `tasks/` where untrusted people or tools can write. Use a normal local folder on one machine (not a synced or network folder).
 
@@ -107,6 +109,8 @@ v0.2 の新機能: `update`(状態の変更)、IDが重ならない・ロック�
 **v0.2.3(細かい穴の修正)**: `add` は空白だけの `--title` を拒否。`NOW.md` が120行で切れるときは「何行省略したか」を最後の行に表示。BOM付きJSON(一部のWindowsエディタ)も読めます。「30秒で試す」は同梱の `examples/` を書き換えない手順に変更。「他と何が違うか」に、`AGENTS.md`・メモリ系ツールとの住み分けを追記しました。
 
 **v0.2.4(インストールと耐久テスト)**: pipx で `nowmd` コマンドとして入ります。別々のプロセス10個が同時に書いても何も失われないことを確かめるテストを追加。CIは Linux / macOS / Windows でパッケージのインストールも確認します。
+
+**v0.2.5**: 複数プロセスが続けてロックを取るときに、Windowsだけで稀に起きる競合を修正(CIの耐久テストで発見)。
 
 ### 信頼と限界
 `NOW.md` は「書き手を信頼する」前提です。タスクに書かれた文字は、次のAIが読むページにそのまま入ります。信頼できない人やツールが書き込める場所に `tasks/` を置かないでください。同期フォルダやネットワーク共有ではなく、1台のマシンの普通のフォルダで使ってください。

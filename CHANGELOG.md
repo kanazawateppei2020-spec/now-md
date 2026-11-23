@@ -2,6 +2,9 @@
 
 All notable changes to now-md. Versions follow `__version__` in `nowmd.py`.
 
+## 0.2.5 — Windows lock race
+- The new endurance run in CI caught one rare failure on Windows: taking the lock right after another process released it could raise `PermissionError` (the deleted lock file is still "pending delete"). Now treated as "busy, retry" on Windows only; file replacement (`os.replace`) is also retried briefly there. No change on Linux / macOS.
+
 ## 0.2.4 — installable as a command, endurance test
 - New `pyproject.toml`: `pipx install git+https://github.com/kanazawateppei2020-spec/now-md` (or `pip install .`) gives a `nowmd` command. Still one file, standard library only; `python3 nowmd.py ...` works as before.
 - New endurance test: 10 separate processes each run add / update / note / done / build / list at the same time (40 tasks). Nothing is lost or overwritten, `check` stays clean, no lock or temp file is left behind.

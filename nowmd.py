@@ -23,7 +23,7 @@ ids never collide (random suffix + exclusive create), files are replaced atomica
 """
 import argparse, contextlib, datetime, glob, json, math, os, re, secrets, sys, time
 
-__version__ = "0.2.4"
+__version__ = "0.2.5"
 MAX_LINES = 120
 STATUSES = ("running", "waiting", "blocked", "failed", "done")
 LOCK_NAME = ".nowmd.lock"
@@ -126,7 +126,16 @@ def lock(base):
             os.write(fd, mine.encode())
             os.close(fd)
             break
-        except FileExistsError:
+        except (FileExistsError, PermissionError) as e:
+            # Windows quirk: creating a lock file that another process has just deleted (delete still pending)
+            # raises PermissionError instead of FileExistsError. Treat it as "busy, try again" there only.
+            if isinstance(e, PermissionError) and os.name != "nt":
+                raise
+            if not os.path.exists(path):
+                if time.time() - t0 > wait:
+                    raise SystemExit(f"could not get the lock ({path}); if no other nowmd is running, delete that file")
+                time.sleep(0.02)
+                continue
             try:
                 if time.time() - os.path.getmtime(path) > stale:
                     raw, pid = read_lock_owner(path)
@@ -210,12 +219,24 @@ def check(base):
     return bad
 
 
+def replace_file(tmp, dst):
+    """os.replace, retried briefly on Windows where a scanner/indexer can hold the target open for a moment."""
+    for i in range(50):
+        try:
+            os.replace(tmp, dst)
+            return
+        except PermissionError:
+            if os.name != "nt" or i == 49:
+                raise
+            time.sleep(0.05)
+
+
 def write_json_atomic(p, d):
     os.makedirs(os.path.dirname(p), exist_ok=True)
     tmp = p + f".{os.getpid()}.tmp"
     with open(tmp, "w", encoding="utf-8") as f:
         json.dump(d, f, ensure_ascii=False, indent=1)
-    os.replace(tmp, p)
+    replace_file(tmp, p)
 
 
 def check_id(tid):
@@ -293,7 +314,7 @@ def build(base, stale_min=60):
     tmp = path + f".{os.getpid()}.tmp"
     with open(tmp, "w", encoding="utf-8") as f:
         f.write("\n".join(lines) + "\n")
-    os.replace(tmp, path)
+    replace_file(tmp, path)
     return path, len(lines)
 
 
