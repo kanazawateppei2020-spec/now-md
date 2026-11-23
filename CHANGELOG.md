@@ -2,6 +2,12 @@
 
 All notable changes to now-md. Versions follow `__version__` in `nowmd.py`.
 
+## 0.2.4 — installable as a command, endurance test
+- New `pyproject.toml`: `pipx install git+https://github.com/kanazawateppei2020-spec/now-md` (or `pip install .`) gives a `nowmd` command. Still one file, standard library only; `python3 nowmd.py ...` works as before.
+- New endurance test: 10 separate processes each run add / update / note / done / build / list at the same time (40 tasks). Nothing is lost or overwritten, `check` stays clean, no lock or temp file is left behind.
+- CI also installs the package (`pip install .`) and runs `nowmd` on Linux / macOS / Windows.
+- Tests: 26.
+
 ## 0.2.3 — input and output edge cases, clearer positioning
 - `add` rejects a blank (whitespace-only) `--title`; a padded title is stored trimmed.
 - When `NOW.md` is cut at the 120-line cap, the last line now says `…(N行省略 / lines omitted)` instead of a bare "truncated".

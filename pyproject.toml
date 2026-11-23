@@ -1,0 +1,31 @@
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "now-md"
+dynamic = ["version"]
+description = "One machine-written NOW.md hand-off page so Claude, ChatGPT, Codex and Gemini always know the current state. No AI, no network, stdlib only."
+readme = "README.md"
+requires-python = ">=3.11"
+license = { text = "MIT" }
+keywords = ["ai-agents", "handoff", "claude", "chatgpt", "codex", "gemini", "multi-agent", "cli"]
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "License :: OSI Approved :: MIT License",
+    "Environment :: Console",
+    "Topic :: Software Development",
+]
+
+[project.urls]
+Homepage = "https://github.com/kanazawateppei2020-spec/now-md"
+Changelog = "https://github.com/kanazawateppei2020-spec/now-md/blob/main/CHANGELOG.md"
+
+[project.scripts]
+nowmd = "nowmd:main"
+
+[tool.setuptools]
+py-modules = ["nowmd"]
+
+[tool.setuptools.dynamic]
+version = { attr = "nowmd.__version__" }

@@ -134,6 +134,43 @@ class Concurrency(unittest.TestCase):
             self.assertEqual(run(d, "check")[0], 0)
             self.assertFalse(os.path.exists(os.path.join(d, ".nowmd.lock")))
 
+    def test_many_processes_mixed_commands(self):
+        """Endurance: 10 separate processes each add, update, note, done, build and list at once."""
+        workers, rounds = 10, 4
+        env = dict(os.environ, NOWMD_LOCK_WAIT="120")  # slow CI machines: never give up while others hold the lock
+        with tempfile.TemporaryDirectory() as d:
+            def cli(*args):
+                return subprocess.run([sys.executable, os.path.join(ROOT, "nowmd.py"), "--dir", d, *args],
+                                      capture_output=True, text=True, env=env)
+
+            def worker(w):
+                fails = []
+                for r in range(rounds):
+                    p = cli("add", "--who", "ai%d" % (w % 3), "--title", "w%d-r%d" % (w, r))  # same name on purpose
+                    if p.returncode:
+                        fails.append(("add", p.stderr)); continue
+                    tid = p.stdout.split()[1]
+                    for args in (("update", "--id", tid, "--status", "blocked", "--why", "w", "--fix", "f"),
+                                 ("note", "n%d-%d" % (w, r)),
+                                 ("update", "--id", tid, "--status", "running"),
+                                 ("done", "--id", tid, "--result", "r.md"),
+                                 ("build",), ("list",)):
+                        q = cli(*args)
+                        if q.returncode:
+                            fails.append((args[0], q.stderr))
+                return fails
+
+            with concurrent.futures.ThreadPoolExecutor(workers) as ex:  # each job = many real processes
+                results = list(ex.map(worker, range(workers)))
+            self.assertEqual([x for r in results for x in r], [])
+            self.assertEqual(len(task_files(d)), workers * rounds)  # none lost, none overwritten
+            for f in task_files(d):
+                self.assertEqual(json.loads(read(f))["status"], "done")
+            self.assertEqual(len([l for l in read(os.path.join(d, "notes.md")).splitlines() if l.startswith("- ")]), workers * rounds)
+            self.assertEqual(cli("check").returncode, 0)
+            left = [n for n in os.listdir(d) + os.listdir(os.path.join(d, "tasks")) if n.endswith(".tmp") or n == ".nowmd.lock"]
+            self.assertEqual(left, [])  # no leftover temp files or lock
+
     def _old_lock(self, d, pid):
         p = os.path.join(d, ".nowmd.lock")
         with open(p, "w") as f:

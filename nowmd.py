@@ -13,6 +13,8 @@ Each task = one small JSON file in ./tasks/ . Each AI (or you) writes its own li
   python3 nowmd.py check            # lists broken task files / bad status / bad dates (exit 1 if any)
   python3 nowmd.py list             # one line per task: id, [status], title  (find the id for update/done)
 
+Installed with `pipx install git+https://github.com/kanazawateppei2020-spec/now-md`? Then just run `nowmd add ...` (same commands).
+
 Status: running | waiting | blocked | failed | done
 Folder: --dir DIR (default: current folder; uses DIR/tasks/, DIR/notes.md, DIR/NOW.md)
 
@@ -21,7 +23,7 @@ ids never collide (random suffix + exclusive create), files are replaced atomica
 """
 import argparse, contextlib, datetime, glob, json, math, os, re, secrets, sys, time
 
-__version__ = "0.2.3"
+__version__ = "0.2.4"
 MAX_LINES = 120
 STATUSES = ("running", "waiting", "blocked", "failed", "done")
 LOCK_NAME = ".nowmd.lock"
