@@ -120,6 +120,10 @@ v0.2 の新機能: `update`(状態の変更)、IDが重ならない・ロック�
 - cron や launchd で `python3 nowmd.py build` を数分おきに回すと、`running` のまま長時間更新が無い作業に ⚠ が付きます。
 - `tasks/` の記録は消さずに溜めてOK(24時間より古い `done` は `NOW.md` に出ません)。
 
+## Same author, same style (free, no AI, standard library) / 同じ作者の無料ツール
+- [load-guard](https://github.com/kanazawateppei2020-spec/load-guard) — make unattended AI / batch jobs wait when your computer is busy
+- [zukai-py](https://github.com/kanazawateppei2020-spec/zukai-py) — draw flow / steps / compare diagrams from a tiny JSON
+
 ## Related writing (Japanese) / 関連記事
 The tool above is free and complete on its own. These are optional Japanese write-ups by the author:
 - Series / 連載マガジン: https://note.com/teppei_lil_white/m/m5d06e069f1fd
