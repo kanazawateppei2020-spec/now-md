@@ -2,6 +2,12 @@
 
 All notable changes to now-md. Versions follow `__version__` in `nowmd.py`.
 
+## 0.2.6 — safer stale-lock cleanup, id check, fsync
+- Taking over a dead process's old lock is now done by one process at a time (guard file `.nowmd.lock.reclaim`), re-checking age and owner under the guard, so a lock another process has just taken is never deleted by a slow cleaner. New test: 8 processes clear the same stale lock at once and still never overlap.
+- `check` now warns when the `id` inside a task file does not match its file name.
+- Files are flushed and fsync'ed before they replace the old ones (and the folder is fsync'ed where the OS allows), so a power cut does not leave an empty `NOW.md` or task file.
+- Tests: 29.
+
 ## 0.2.5 — Windows lock race
 - The new endurance run in CI caught one rare failure on Windows: taking the lock right after another process released it could raise `PermissionError` (the deleted lock file is still "pending delete"). Now treated as "busy, retry" on Windows only; file replacement (`os.replace`) is also retried briefly there. No change on Linux / macOS.
 

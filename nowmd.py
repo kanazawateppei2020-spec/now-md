@@ -23,7 +23,7 @@ ids never collide (random suffix + exclusive create), files are replaced atomica
 """
 import argparse, contextlib, datetime, glob, json, math, os, re, secrets, sys, time
 
-__version__ = "0.2.5"
+__version__ = "0.2.6"
 MAX_LINES = 120
 STATUSES = ("running", "waiting", "blocked", "failed", "done")
 LOCK_NAME = ".nowmd.lock"
@@ -111,6 +111,32 @@ def read_lock_owner(path):
         return raw, None
 
 
+def reclaim_stale(path, stale):
+    """Clear an old lock whose owner process is gone. Only one process may do this at a time (guard file
+    <lock>.reclaim), and age + owner are checked again under the guard, so a lock that somebody
+    has just taken can never be deleted by a slow reclaimer."""
+    guard = path + ".reclaim"
+    try:
+        if time.time() - os.path.getmtime(guard) > stale:  # a reclaimer that crashed
+            os.remove(guard)
+    except OSError:
+        pass
+    try:
+        os.close(os.open(guard, os.O_CREAT | os.O_EXCL | os.O_WRONLY))
+    except OSError:
+        return  # another process is reclaiming right now; the caller retries
+    try:
+        if time.time() - os.path.getmtime(path) > stale:
+            pid = read_lock_owner(path)[1]
+            if pid is None or not pid_alive(pid):
+                os.remove(path)
+    except OSError:
+        pass
+    finally:
+        with contextlib.suppress(OSError):
+            os.remove(guard)
+
+
 @contextlib.contextmanager
 def lock(base):
     """Cross-platform lock: create DIR/.nowmd.lock exclusively (content: "<pid> <unix time>").
@@ -138,11 +164,8 @@ def lock(base):
                 continue
             try:
                 if time.time() - os.path.getmtime(path) > stale:
-                    raw, pid = read_lock_owner(path)
-                    if pid is None or not pid_alive(pid):
-                        # re-check the owner didn't change while we looked, then clear the dead lock
-                        if read_lock_owner(path)[0] == raw:
-                            os.remove(path)
+                    reclaim_stale(path, stale)
+                    if not os.path.exists(path):
                         continue
             except OSError:
                 continue
@@ -216,6 +239,8 @@ def check(base):
             continue
         for p in problems_of(d):
             bad.append(f"{name}: {p}")
+        if str(d.get("id", "")).strip() and d["id"] != name[:-5]:
+            bad.append(f"{name}: id '{clip(d['id'], 40)}' does not match the file name")
     return bad
 
 
@@ -231,12 +256,26 @@ def replace_file(tmp, dst):
             time.sleep(0.05)
 
 
-def write_json_atomic(p, d):
-    os.makedirs(os.path.dirname(p), exist_ok=True)
+def write_text_atomic(p, text):
+    """Write a temp file, flush + fsync it, replace the target, then fsync the folder (where the OS allows)."""
     tmp = p + f".{os.getpid()}.tmp"
     with open(tmp, "w", encoding="utf-8") as f:
-        json.dump(d, f, ensure_ascii=False, indent=1)
+        f.write(text)
+        f.flush()
+        os.fsync(f.fileno())
     replace_file(tmp, p)
+    if os.name != "nt":  # directories cannot be opened on Windows
+        with contextlib.suppress(OSError):
+            fd = os.open(os.path.dirname(p), os.O_RDONLY)
+            try:
+                os.fsync(fd)
+            finally:
+                os.close(fd)
+
+
+def write_json_atomic(p, d):
+    os.makedirs(os.path.dirname(p), exist_ok=True)
+    write_text_atomic(p, json.dumps(d, ensure_ascii=False, indent=1))
 
 
 def check_id(tid):
@@ -311,10 +350,7 @@ def build(base, stale_min=60):
     flat = "\n".join(out).splitlines()  # count real lines, whatever the fields contained
     lines = flat[:MAX_LINES - 1] + ([f"…({len(flat) - (MAX_LINES - 1)}行省略 / lines omitted)"] if len(flat) > MAX_LINES else [])
     path = os.path.join(base, "NOW.md")
-    tmp = path + f".{os.getpid()}.tmp"
-    with open(tmp, "w", encoding="utf-8") as f:
-        f.write("\n".join(lines) + "\n")
-    replace_file(tmp, path)
+    write_text_atomic(path, "\n".join(lines) + "\n")
     return path, len(lines)
 
 

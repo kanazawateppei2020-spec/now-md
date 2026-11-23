@@ -110,6 +110,16 @@ class Validation(unittest.TestCase):
         self.assertEqual(run(self.d, "build")[0], 0)
         self.assertIn("broken task record", read(os.path.join(self.d, "NOW.md")))
 
+    def test_check_warns_when_id_does_not_match_file_name(self):
+        self.put("good.json", json.dumps({"id": "good", "who": "x", "title": "t", "status": "running"}))
+        self.assertEqual(run(self.d, "check")[0], 0)
+        self.put("renamed.json", json.dumps({"id": "original", "who": "x", "title": "t", "status": "running"}))
+        code, out = run(self.d, "check")
+        self.assertEqual(code, 1)
+        self.assertIn("renamed.json", out)
+        self.assertIn("does not match the file name", out)
+        self.assertNotIn("good.json", out)
+
     def test_naive_time_ok(self):
         self.put("e.json", json.dumps({"id": "e", "who": "x", "title": "t", "status": "running", "updated": "2020-01-01T00:00:00"}))
         self.assertEqual(run(self.d, "check")[0], 0)
@@ -185,6 +195,36 @@ class Concurrency(unittest.TestCase):
         with tempfile.TemporaryDirectory() as d:
             self._old_lock(d, dead.pid)
             self.assertEqual(run(d, "note", "hi")[0], 0)
+
+    def test_many_processes_reclaim_same_stale_lock_without_overlap(self):
+        """8 processes find the same dead lock at once; each does a slow read-modify-write on a counter."""
+        dead = subprocess.Popen([sys.executable, "-c", "pass"])
+        dead.wait()
+        code = ("import sys, time; sys.path.insert(0, sys.argv[1]); import nowmd\n"
+                "d = sys.argv[2]\n"
+                "with nowmd.lock(d):\n"
+                "    p = d + '/counter'\n"
+                "    n = int(open(p).read())\n"
+                "    time.sleep(0.05)\n"
+                "    open(p, 'w').write(str(n + 1))\n")
+        env = dict(os.environ, NOWMD_LOCK_WAIT="60", NOWMD_LOCK_STALE="1")
+        with tempfile.TemporaryDirectory() as d:
+            with open(os.path.join(d, "counter"), "w") as f:
+                f.write("0")
+            self._old_lock(d, dead.pid)
+            procs = [subprocess.Popen([sys.executable, "-c", code, ROOT, d], env=env) for _ in range(8)]
+            self.assertEqual([p.wait() for p in procs], [0] * 8)
+            self.assertEqual(read(os.path.join(d, "counter")), "8")  # no lost update = never two holders
+            self.assertEqual([n for n in os.listdir(d) if n.startswith(".nowmd.lock")], [])
+
+    def test_reclaim_does_not_delete_a_fresh_lock(self):
+        with tempfile.TemporaryDirectory() as d:
+            p = os.path.join(d, ".nowmd.lock")
+            with open(p, "w") as f:
+                f.write(f"{os.getpid()} 1")  # fresh (just written) and owned by a live process
+            nowmd.reclaim_stale(p, 30)
+            self.assertTrue(os.path.exists(p))
+            self.assertFalse(os.path.exists(p + ".reclaim"))
 
     def test_old_lock_of_live_process_is_not_stolen(self):
         with tempfile.TemporaryDirectory() as d:
