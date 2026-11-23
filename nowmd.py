@@ -21,7 +21,7 @@ ids never collide (random suffix + exclusive create), files are replaced atomica
 """
 import argparse, contextlib, datetime, glob, json, math, os, re, secrets, sys, time
 
-__version__ = "0.2.2"
+__version__ = "0.2.3"
 MAX_LINES = 120
 STATUSES = ("running", "waiting", "blocked", "failed", "done")
 LOCK_NAME = ".nowmd.lock"
@@ -151,7 +151,7 @@ def lock(base):
 def read_task(path):
     """Returns (dict or None, problem or None)."""
     try:
-        with open(path, encoding="utf-8") as f:
+        with open(path, encoding="utf-8-sig") as f:  # -sig: tolerate a BOM (Windows editors)
             d = json.load(f)
     except Exception as e:
         return None, f"not valid JSON ({type(e).__name__})"
@@ -286,7 +286,7 @@ def build(base, stale_min=60):
         out.append(f"- ⚠ {warn} broken task record(s) skipped — run `python3 nowmd.py check`")
     out += sec("Running", running) + sec("Stuck (and how to unblock)", stuck) + sec("Done in the last 24h", done[:12]) + sec("Latest notes / decisions", notes)
     flat = "\n".join(out).splitlines()  # count real lines, whatever the fields contained
-    lines = flat[:MAX_LINES - 1] + (["…(truncated)"] if len(flat) > MAX_LINES else [])
+    lines = flat[:MAX_LINES - 1] + ([f"…({len(flat) - (MAX_LINES - 1)}行省略 / lines omitted)"] if len(flat) > MAX_LINES else [])
     path = os.path.join(base, "NOW.md")
     tmp = path + f".{os.getpid()}.tmp"
     with open(tmp, "w", encoding="utf-8") as f:
@@ -325,6 +325,7 @@ def main(argv=None):
         if a.cmd == "add":
             status = a.status or "running"
             a.who = clip(a.who, 30) if a.who else a.who  # one short line, so it cannot fake headings in NOW.md
+            a.title = a.title.strip() if a.title else a.title  # a blank title is no title
             if not (a.who and a.title):
                 sys.exit("add needs --who and --title")
             if status not in STATUSES:

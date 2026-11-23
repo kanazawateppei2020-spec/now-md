@@ -2,6 +2,14 @@
 
 All notable changes to now-md. Versions follow `__version__` in `nowmd.py`.
 
+## 0.2.3 — input and output edge cases, clearer positioning
+- `add` rejects a blank (whitespace-only) `--title`; a padded title is stored trimmed.
+- When `NOW.md` is cut at the 120-line cap, the last line now says `…(N行省略 / lines omitted)` instead of a bare "truncated".
+- Task JSON written with a BOM (utf-8-sig, common with Windows editors) is read instead of being reported as broken.
+- README: "Try it in 30 seconds" now works on a copy, so the bundled `examples/` is not modified; the 120-line cap is documented; "How it differs" says now-md holds only the current working state and does not replace `AGENTS.md` / `CLAUDE.md` or a memory tool.
+- GitHub repo description and Topics reviewed for discoverability.
+- Tests: 25.
+
 ## 0.2.2 — stability and input fixes
 - A task with an out-of-range date (year 0001 / 9999, or before 1970 on Windows) no longer crashes `check` / `build`; it is reported as a bad time. `parse()` / `hm()` never raise.
 - `--who` is shortened to one line (30 chars) when added and when built; `result` is shortened to 100 chars when built. A task can no longer forge headings in `NOW.md`. The 120-line cap now counts real lines.

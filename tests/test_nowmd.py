@@ -233,7 +233,26 @@ class Robustness(unittest.TestCase):
         run(self.d, "build")
         lines = read(os.path.join(self.d, "NOW.md")).splitlines()
         self.assertEqual(len(lines), nowmd.MAX_LINES)
-        self.assertEqual(lines[-1], "…(truncated)")
+        self.assertRegex(lines[-1], r"^…\(\d+行省略 / lines omitted\)$")
+        # 300 stuck tasks + 12 fixed lines (title, built, 4 headings with blank lines, "none" rows) are written; the shown + omitted lines add up
+        omitted = int(lines[-1].split("(")[1].split("行")[0])
+        self.assertGreaterEqual(omitted, 190)
+        self.assertLessEqual(omitted, 200)
+
+    def test_blank_title_is_rejected_on_add(self):
+        for bad in ("", "   ", "\t\n"):
+            self.assertNotEqual(run(self.d, "add", "--who", "a", "--title", bad)[0], 0, repr(bad))
+        self.assertEqual(task_files(self.d), [])
+        code, out = run(self.d, "add", "--who", "a", "--title", "  padded  ")
+        self.assertEqual(code, 0)
+        self.assertEqual(json.loads(read(task_files(self.d)[0]))["title"], "padded")
+
+    def test_json_with_bom_is_readable(self):
+        with open(os.path.join(self.d, "tasks", "bom.json"), "w", encoding="utf-8-sig") as f:
+            json.dump({"id": "bom", "who": "a", "title": "from a Windows editor", "status": "running"}, f)
+        self.assertEqual(run(self.d, "check")[0], 0)
+        self.assertIn("from a Windows editor (a)", (run(self.d, "build"), read(os.path.join(self.d, "NOW.md")))[1])
+        self.assertIn("bom  [running]", run(self.d, "list")[1])
 
     def test_corrupted_lock_pid_does_not_crash(self):
         for pid in (2**31, 2**63, 10**30, 0, -5):
